@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# PyInstaller files
+*.spec
+
+# Installer logs and files
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environment folders
+venv/
+env/
+ENV/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE/editor folders and files
+.vscode/
+.idea/
+
+# Accounts JSON
+accounts.json
+
+# Compiled executables
+*.exe
+*.dll
+*.so
+*.dylib
