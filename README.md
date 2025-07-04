@@ -78,5 +78,10 @@ Passwords are stored locally in plain JSON format.
 This project is licensed under the [MIT License](LICENSE).  
 See the [LICENSE](LICENSE) file for details.
 
+## 🎥 Demo
+
+[![Watch the demo](https://img.youtube.com/vi/3mkgYJjaUrM/0.jpg)](https://youtu.be/3mkgYJjaUrM)
+
+
 ## Credits 🙌
 Created by gassonexe (Luka Galonjic)
