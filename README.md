@@ -1,3 +1,15 @@
+## Disclaimer ⚠️
+
+This tool is intended **solely for educational and personal use**.  
+It is **not affiliated with, endorsed by, or approved by Riot Games Inc.**
+
+⚠️ **Important Notice:**  
+Using this application **may violate Riot Games’ Terms of Service**, particularly regarding automation of the login process.  
+By using this tool, you acknowledge the potential consequences, including **account suspension, bans, or other actions** taken by Riot Games.
+
+The author assumes **no responsibility** for any outcomes resulting from the use of this software.  
+**Use at your own risk.**
+
 # Riot AutoLogger 🎮
 
 AutoLogger is a simple Python desktop application that automates logging into Riot Games Client accounts. It uses a graphical interface to manage multiple saved accounts and automates the login process by interacting with the Riot Client window using GUI automation.
