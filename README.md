@@ -4,7 +4,7 @@ This tool is intended **solely for educational and personal use**.
 It is **not affiliated with, endorsed by, or approved by Riot Games Inc.**
 
 ⚠️ **Important Notice:**  
-Using this application **may violate Riot Games’ Terms of Service**, particularly regarding automation of the login process.  
+Using this application **could potentially conflict** with Riot Games’ Terms of Service, especially because it automates parts of the login process.  
 By using this tool, you acknowledge the potential consequences, including **account suspension, bans, or other actions** taken by Riot Games.
 
 The author assumes **no responsibility** for any outcomes resulting from the use of this software.  
