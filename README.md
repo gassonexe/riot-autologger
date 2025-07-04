@@ -73,5 +73,10 @@ For best results, use the app at a consistent screen resolution and UI scale.
 
 Passwords are stored locally in plain JSON format.
 
+## License 📄
+
+This project is licensed under the [MIT License](LICENSE).  
+See the [LICENSE](LICENSE) file for details.
+
 ## Credits 🙌
 Created by gassonexe (Luka Galonjic)
