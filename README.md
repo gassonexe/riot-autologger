@@ -27,7 +27,7 @@ AutoLogger is a small Windows desktop application that manages multiple Riot Gam
 - Can **start the Riot Client for you** if it isn't open
 - Sign-in runs in the background with a status line and a Cancel button
 - Safe saving: atomic writes, an automatic backup, and recovery if the accounts file gets damaged
-- Imports accounts from the old v1.0 `accounts.json`
+- Imports accounts from the old v1.0 `accounts.json` with one click
 - No third-party dependencies
 
 ---
@@ -49,7 +49,6 @@ Characters are sent as Unicode keystrokes, so symbols are typed correctly on any
 - `riot_client.py`: the sign-in logic
 - `winapi.py`: Windows window, mouse and keyboard calls
 - `storage.py`, `crypto.py`, `paths.py`: account storage, encryption and file locations
-- `build_exe.bat`: builds a standalone `.exe`
 
 ---
 
@@ -66,10 +65,10 @@ Characters are sent as Unicode keystrokes, so symbols are typed correctly on any
 - Use **Edit** and **Delete** next to an account. Edits are only saved when you click **Save Changes**.
 - Tick or untick **Start the Riot Client if it isn't open** as you prefer.
 
-If you used v1.0, run v2 from the folder that contains your old `accounts.json`. Your accounts are imported and encrypted, and you are told where the old file is. That old file still contains plain-text passwords, so delete it once you have checked everything works.
+If you used v1.0, click **Import Accounts...** and choose your old `accounts.json` (it is in the folder you ran v1.0 from). Your accounts are added and encrypted. That old file still contains plain-text passwords, so delete it once you have checked everything works.
 
-### Build the .exe
-Double-click `build_exe.bat` (or run it from a terminal). The program is created at `dist\AutoLogger.exe`. Unsigned programs like this can trigger Windows SmartScreen or antivirus warnings.
+### About the .exe
+The `.exe` on the Releases page is built from this source with PyInstaller. Unsigned programs like this can trigger Windows SmartScreen or antivirus warnings.
 
 ## Important Notes ⚠️
 
