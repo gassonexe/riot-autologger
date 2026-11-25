@@ -1,117 +1,37 @@
-import tkinter as tk
-import pyautogui
-import pygetwindow as gw
-import time
-import json
-import os
+import queue
 import sys
+import threading
+import tkinter as tk
+from tkinter import messagebox
 
-ACCOUNTS_FILE = "accounts.json"  # JSON file to store saved accounts
+from crypto import CryptoError, DpapiCrypto
+from paths import accounts_file, legacy_accounts_files, resource_path
+from riot_client import Outcome, RiotLogin
+from storage import AccountStore, StorageError, ValidationError
+from winapi import WinApi
 
-def resource_path(relative_path):
-    # Get absolute path to resource, works for dev and PyInstaller
-    try:
-        base_path = sys._MEIPASS  # PyInstaller temp folder when frozen
-    except Exception:
-        base_path = os.path.abspath(".")  # Normal script execution path
-    return os.path.join(base_path, relative_path)
+APP_TITLE = "AutoLogger by Gasson"
+APP_VERSION = "2.0"
 
-# Load saved accounts from JSON file if it exists
-if os.path.exists(ACCOUNTS_FILE):
-    with open(ACCOUNTS_FILE, "r") as f:
-        accounts = json.load(f)
-else:
-    accounts = {}
 
-def save_accounts():
-    # Save the accounts dictionary to JSON file with indentation
-    with open(ACCOUNTS_FILE, "w") as f:
-        json.dump(accounts, f, indent=4)
-
-def inject_credentials(username, password):
-    # Automate Riot Client login by injecting username and password using pyautogui
-    try:
-        print(f"Injecting for user: {username}")
-
-        # Search for the Riot Client window by title
-        for window in gw.getWindowsWithTitle("Riot Client"):
-            print("Found Riot Client window.")
-            window.minimize()    # Minimize to force window refresh
-            time.sleep(0.1)
-            window.restore()     # Restore it back
-            window.activate()    # Bring it to foreground
-            break
-        else:
-            print("Riot Client window not found.")
-            return
-
-        time.sleep(0.1)
-
-        # Get window position to calculate relative click positions
-        riot_x, riot_y = window.left, window.top
-
-        # Click inside the window to ensure focus
-        pyautogui.click(riot_x + 50, riot_y + 50)
-        time.sleep(0.1)
-
-        # Locate username input field on screen via image matching
-        username_field = pyautogui.locateCenterOnScreen(resource_path("assets/username_field.png"), confidence=0.55)
-        if username_field:
-            pyautogui.click(username_field)
-            time.sleep(0.3)
-            pyautogui.write(username, interval=0.01)  # Type username slowly
-        else:
-            print("Username field not found.")
-            return
-
-        # Locate password input field on screen
-        password_field = pyautogui.locateCenterOnScreen(resource_path("assets/password_field.png"), confidence=0.55)
-        if password_field:
-            pyautogui.click(password_field)
-            time.sleep(0.3)
-            pyautogui.write(password, interval=0.01)  # Type password slowly
-        else:
-            print("Password field not found.")
-            return
-
-        # Locate and click the login button
-        login_button = pyautogui.locateCenterOnScreen(resource_path("assets/login_button.png"), confidence=0.55)
-        if login_button:
-            time.sleep(0.3)
-            pyautogui.click(login_button)
-            print("Login sequence complete.")
-        else:
-            print("Login button not found.")
-
-    except Exception as e:
-        import traceback
-        print("Error during injection:")
-        traceback.print_exc()
-
-# Create the main Tkinter window
 window = tk.Tk()
-window.title("AutoLogger by Gasson")
+window.title(f"{APP_TITLE} v{APP_VERSION}")
 
-# Set custom window icon (using PNG for taskbar/window icon)
 icon_img = tk.PhotoImage(file=resource_path("assets/youricon.png"))
 window.iconphoto(True, icon_img)
 
-# Define colors used in the UI
-bg_color = "#2D003E"       # Background color
-button_color = "#B266FF"   # Button color
-text_color = "#FFFFFF"     # Text color
+bg_color = "#2D003E"
+button_color = "#B266FF"
+text_color = "#FFFFFF"
 
-# Apply background color to main window
 window.configure(bg=bg_color)
 
-# Set fixed window size and disable resizing/maximize/fullscreen
 window.geometry("800x600")
 window.resizable(False, False)
 window.minsize(800, 600)
 window.maxsize(800, 600)
 
-# Center the window on the user's screen
-window.update_idletasks()  # Update window info before geometry calculations
+window.update_idletasks()
 screen_width = window.winfo_screenwidth()
 screen_height = window.winfo_screenheight()
 size_width = 800
@@ -120,7 +40,19 @@ x = (screen_width // 2) - (size_width // 2)
 y = (screen_height // 2) - (size_height // 2)
 window.geometry(f"{size_width}x{size_height}+{x}+{y}")
 
-# Add a header label prompting user action
+try:
+    store = AccountStore(accounts_file(), DpapiCrypto(), legacy_paths=legacy_accounts_files())
+    engine = RiotLogin(WinApi())
+except (StorageError, CryptoError, OSError) as error:
+    messagebox.showerror(APP_TITLE, f"Could not load your accounts:\n\n{error}")
+    window.destroy()
+    sys.exit(1)
+
+edit_state = {"name": None}
+
+login_state = {"running": False, "cancel": None}
+ui_events = queue.Queue()
+
 tk.Label(
     window,
     text="Click an account to log in:",
@@ -129,80 +61,204 @@ tk.Label(
     font=("Helvetica", 14, "bold")
 ).pack(pady=10)
 
-# Container frame to hold scrollable accounts list
+# Packed before the list so these keep their space at the bottom of the window
+status_bar = tk.Frame(window, bg=bg_color)
+status_bar.pack(side="bottom", fill="x", padx=15, pady=(0,8))
+status_var = tk.StringVar(value="")
+tk.Label(status_bar, textvariable=status_var, bg=bg_color, fg=text_color,
+         font=("Helvetica", 10), anchor="w", justify="left", wraplength=600).pack(side="left", fill="x", expand=True)
+cancel_btn = tk.Button(status_bar, text="Cancel", command=lambda: cancel_login())  # defined further down
+
+options_row = tk.Frame(window, bg=bg_color)
+options_row.pack(side="bottom", fill="x", padx=15)
+launch_var = tk.BooleanVar(value=True)
+tk.Checkbutton(
+    options_row, text="Start the Riot Client if it isn't open", variable=launch_var,
+    bg=bg_color, fg=text_color, activebackground=bg_color, activeforeground=text_color,
+    selectcolor="#4B0A66", font=("Helvetica", 10)
+).pack(side="left")
+
 container = tk.Frame(window, bg=bg_color)
 container.pack(pady=10, fill="both", expand=True)
 
-# Canvas widget used to enable scrolling of accounts
 canvas = tk.Canvas(container, bg=bg_color, highlightthickness=0)
 scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
 
-# Frame inside the canvas that will contain the account buttons
 scrollable_frame = tk.Frame(canvas, bg=bg_color)
 
-# Create window inside canvas for scrollable_frame, anchored top-left
 scrollable_frame_id = canvas.create_window((0,0), window=scrollable_frame, anchor="nw")
 
-def update_scroll():
-    # Update the scroll region and handle scrollbar visibility and horizontal centering
 
-    canvas.configure(scrollregion=canvas.bbox("all"))  # Set scrollable area
+def on_mousewheel(event):
+    canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+
+def update_scroll():
+    canvas.configure(scrollregion=canvas.bbox("all"))
 
     scroll_region = canvas.bbox("all")
     if scroll_region:
         _, _, _, content_height = scroll_region
         view_height = canvas.winfo_height()
 
-        # Show scrollbar only if content is taller than view height
         if content_height > view_height:
             scrollbar.pack(side="right", fill="y")
             canvas.configure(yscrollcommand=scrollbar.set)
 
-            # Bind mouse wheel for scrolling
             canvas.bind_all("<MouseWheel>", on_mousewheel)
-            canvas.bind_all("<Button-4>", on_mousewheel)  # Linux scroll up
-            canvas.bind_all("<Button-5>", on_mousewheel)  # Linux scroll down
+            canvas.bind_all("<Button-4>", on_mousewheel)
+            canvas.bind_all("<Button-5>", on_mousewheel)
         else:
-            # Hide scrollbar and unbind mouse wheel if not needed
             scrollbar.pack_forget()
             canvas.configure(yscrollcommand=None)
             canvas.unbind_all("<MouseWheel>")
             canvas.unbind_all("<Button-4>")
             canvas.unbind_all("<Button-5>")
     else:
-        # No content, hide scrollbar and unbind
         scrollbar.pack_forget()
         canvas.configure(yscrollcommand=None)
         canvas.unbind_all("<MouseWheel>")
         canvas.unbind_all("<Button-4>")
         canvas.unbind_all("<Button-5>")
 
-    # Horizontally center the scrollable_frame inside the canvas
     canvas_width = canvas.winfo_width()
     frame_width = scrollable_frame.winfo_reqwidth()
     x_offset = max((canvas_width - frame_width) // 2, 0)
     canvas.coords(scrollable_frame_id, x_offset, 0)
 
-# Update scroll region and scrollbar visibility whenever scrollable_frame resizes
 scrollable_frame.bind("<Configure>", lambda e: update_scroll())
 
 canvas.pack(side="left", fill="both", expand=True)
 
-account_frames = {}  # Store references to account frames for easy access
 
-def add_account_button(name, creds):
-    # Add a new account button with Edit and Delete options inside the scrollable frame
+def show_error(message):
+    messagebox.showerror(APP_TITLE, message)
 
-    # Prevent duplicate buttons for the same account
-    if name in account_frames:
+
+def set_status(text):
+    status_var.set(text)
+
+
+def login(name):
+    if login_state["running"]:
+        set_status("A sign-in is already running.")
+        return
+    try:
+        account = store.get(name)
+    except (ValidationError, CryptoError, StorageError) as error:
+        show_error(f"Could not read the saved login for '{name}':\n\n{error}\n\n"
+                   "Edit the account and enter its password again.")
         return
 
-    # Outer frame to hold account button and action buttons horizontally
+    username, password = account.username, account.password
+    launch = launch_var.get()          # read here: Tk must only be used from the main thread
+    cancel = threading.Event()
+    login_state.update(running=True, cancel=cancel)
+    cancel_btn.pack(side="right")
+    set_status(f"Signing in to '{name}'...")
+
+    def work():
+        try:
+            result = engine.login(username, password, launch=launch, cancel=cancel,
+                                  status=lambda message: ui_events.put(("status", message)))
+            ui_events.put(("done", result))
+        except Exception as error:
+            ui_events.put(("error", f"Unexpected error: {type(error).__name__}: {error}"))
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def cancel_login():
+    cancel = login_state["cancel"]
+    if cancel is not None:
+        cancel.set()
+        set_status("Cancelling...")
+
+
+def finish_login(message, show_dialog):
+    login_state.update(running=False, cancel=None)
+    cancel_btn.pack_forget()
+    set_status(message)
+    if show_dialog:
+        messagebox.showwarning(APP_TITLE, message)
+
+
+def poll_events():
+    try:
+        while True:
+            kind, payload = ui_events.get_nowait()
+            if kind == "status":
+                if login_state["running"]:
+                    set_status(payload)
+            elif kind == "done":
+                finish_login(payload.message,
+                             show_dialog=not payload.ok and payload.outcome is not Outcome.CANCELLED)
+            else:
+                finish_login(payload, show_dialog=True)
+    except queue.Empty:
+        pass
+    window.after(100, poll_events)
+
+
+def clear_form():
+    label_entry.delete(0, tk.END)
+    username_entry.delete(0, tk.END)
+    password_entry.delete(0, tk.END)
+
+
+def end_edit():
+    edit_state["name"] = None
+    clear_form()
+    submit_btn.config(text="Add Account")
+    cancel_btn.pack_forget()
+    form_title.config(text="Add New Account")
+
+
+def begin_edit(name):
+    try:
+        username = store.username_of(name)
+    except ValidationError as error:
+        show_error(str(error))
+        refresh_account_list()
+        return
+
+    try:
+        password = store.get(name).password
+    except (CryptoError, StorageError) as error:
+        password = ""
+        messagebox.showwarning(
+            APP_TITLE,
+            f"The saved password for '{name}' could not be read:\n\n{error}\n\n"
+            "Please enter the password again."
+        )
+
+    edit_state["name"] = name
+    clear_form()
+    label_entry.insert(0, name)
+    username_entry.insert(0, username)
+    password_entry.insert(0, password)
+    submit_btn.config(text="Save Changes")
+    cancel_btn.pack(side="left", padx=5)
+    form_title.config(text=f"Editing: {name}")
+
+
+def delete_account(name):
+    if not messagebox.askyesno(APP_TITLE, f"Delete the account '{name}'?"):
+        return
+    try:
+        store.delete(name)
+    except (ValidationError, StorageError) as error:
+        show_error(str(error))
+    if edit_state["name"] == name:
+        end_edit()
+    refresh_account_list()
+
+
+def add_account_button(name):
     outer_frame = tk.Frame(scrollable_frame, bg=bg_color)
     outer_frame.pack(pady=3, fill="x")
 
-    # Main account button to trigger login injection
-    btn = tk.Button(
+    tk.Button(
         outer_frame,
         text=name,
         width=30,
@@ -210,94 +266,52 @@ def add_account_button(name, creds):
         fg="black",
         activebackground="#A64DFF",
         font=("Helvetica", 12),
-        command=lambda u=creds["username"], p=creds["password"]: inject_credentials(u, p)
-    )
-    btn.pack(side="left", padx=(0,10))
+        command=lambda n=name: login(n)
+    ).pack(side="left", padx=(0,10))
 
-    def start_edit_account():
-        # Populate form entries with account data to allow editing
-        label_entry.delete(0, tk.END)
-        label_entry.insert(0, name)
-        username_entry.delete(0, tk.END)
-        username_entry.insert(0, creds["username"])
-        password_entry.delete(0, tk.END)
-        password_entry.insert(0, creds["password"])
+    tk.Button(outer_frame, text="Edit", width=6, command=lambda n=name: begin_edit(n)).pack(side="left", padx=(0,5))
+    tk.Button(outer_frame, text="Delete", width=6, command=lambda n=name: delete_account(n)).pack(side="left")
 
-        # Remove old account before editing so it can be replaced on save
-        del accounts[name]
-        outer_frame.destroy()
-        del account_frames[name]
-        save_accounts()
-        update_scroll()
 
-    # Button to edit the selected account
-    edit_btn = tk.Button(outer_frame, text="Edit", width=6, command=start_edit_account)
-    edit_btn.pack(side="left", padx=(0,5))
-
-    def delete_account():
-        # Delete account from data and UI
-        if name in accounts:
-            del accounts[name]
-            outer_frame.destroy()
-            del account_frames[name]
-            save_accounts()
-            print(f"Deleted account: {name}")
-            update_scroll()
-
-    # Button to delete the selected account
-    del_btn = tk.Button(outer_frame, text="Delete", width=6, command=delete_account)
-    del_btn.pack(side="left")
-
-    # Store reference to outer frame for this account
-    account_frames[name] = outer_frame
+def refresh_account_list():
+    for child in scrollable_frame.winfo_children():
+        child.destroy()
+    for name in store.names():
+        add_account_button(name)
     update_scroll()
 
-def add_account():
-    # Read user input from form and add new account to dictionary and UI
-    name = label_entry.get().strip()
-    username = username_entry.get().strip()
-    password = password_entry.get().strip()
 
-    # Validate all fields are filled
-    if not name or not username or not password:
-        print("Please fill in all fields")
+def submit_form():
+    name = label_entry.get()
+    username = username_entry.get()
+    password = password_entry.get()  # kept exactly as typed
+
+    try:
+        if edit_state["name"] is None:
+            store.add(name, username, password)
+        else:
+            store.update(edit_state["name"], name, username, password)
+    except ValidationError as error:
+        messagebox.showwarning(APP_TITLE, str(error))
+        return
+    except (StorageError, CryptoError) as error:
+        show_error(str(error))
         return
 
-    # Check for duplicate account names
-    if name in accounts:
-        print("Account name already exists!")
-        return
+    end_edit()
+    refresh_account_list()
 
-    # Save new account and add button
-    accounts[name] = {"username": username, "password": password}
-    add_account_button(name, accounts[name])
-    save_accounts()
 
-    # Clear form entries after adding
-    label_entry.delete(0, tk.END)
-    username_entry.delete(0, tk.END)
-    password_entry.delete(0, tk.END)
+form_title = tk.Label(window, text="Add New Account", bg=bg_color, fg=text_color, font=("Helvetica", 12, "bold"))
+form_title.pack(pady=(20,10))
 
-    print(f"Account '{name}' added successfully.")
-    update_scroll()
-
-# Add buttons for all previously saved accounts on startup
-for name, creds in accounts.items():
-    add_account_button(name, creds)
-
-# Label for the add new account section
-tk.Label(window, text="Add New Account", bg=bg_color, fg=text_color, font=("Helvetica", 12, "bold")).pack(pady=(20,10))
-
-# Container for the add account form inputs
 form_container = tk.Frame(window, bg=bg_color)
 form_container.pack(pady=10)
 
-# Labels for form fields
 tk.Label(form_container, text="Account Name", bg=bg_color, fg=text_color, font=("Helvetica", 10)).grid(row=0, column=0, padx=20, pady=(0,5))
 tk.Label(form_container, text="Username", bg=bg_color, fg=text_color, font=("Helvetica", 10)).grid(row=0, column=1, padx=20, pady=(0,5))
 tk.Label(form_container, text="Password", bg=bg_color, fg=text_color, font=("Helvetica", 10)).grid(row=0, column=2, padx=20, pady=(0,5))
 
-# Entry widgets for form fields
 label_entry = tk.Entry(form_container, width=18, font=("Helvetica", 10))
 username_entry = tk.Entry(form_container, width=18, font=("Helvetica", 10))
 password_entry = tk.Entry(form_container, width=18, show="*", font=("Helvetica", 10))
@@ -306,26 +320,36 @@ label_entry.grid(row=1, column=0, padx=20)
 username_entry.grid(row=1, column=1, padx=20)
 password_entry.grid(row=1, column=2, padx=20)
 
-# Button to add new account when clicked
-tk.Button(
-    window,
+button_row = tk.Frame(window, bg=bg_color)
+button_row.pack(pady=(10,15))
+
+submit_btn = tk.Button(
+    button_row,
     text="Add Account",
     bg=button_color,
     fg="black",
     activebackground="#A64DFF",
     font=("Helvetica", 11, "bold"),
-    command=add_account
-).pack(pady=(10,15))
+    command=submit_form
+)
+submit_btn.pack(side="left", padx=5)
 
-def on_mousewheel(event):
-    # Scroll canvas vertically based on mouse wheel delta
-    canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+cancel_btn = tk.Button(
+    button_row,
+    text="Cancel",
+    font=("Helvetica", 11),
+    command=end_edit
+)
 
-# Bind mouse wheel event for scrolling the accounts list
+refresh_account_list()
+
+window.after(100, poll_events)
+
 canvas.bind_all("<MouseWheel>", on_mousewheel)
 
-# Bind window resize/move event to update scroll region and positions to avoid disappearing accounts
 window.bind("<Configure>", lambda e: update_scroll())
 
-# Start Tkinter event loop
+for notice in store.notices:
+    messagebox.showinfo(APP_TITLE, notice)
+
 window.mainloop()

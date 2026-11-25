@@ -36,3 +36,11 @@ accounts.json
 *.dll
 *.so
 *.dylib
+
+# Local-only: tests, investigation tools, dev requirements
+tests/
+tools/
+pytest.ini
+.pytest_cache/
+requirements.txt
+requirements-dev.txt
